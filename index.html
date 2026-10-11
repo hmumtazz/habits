@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Habits">
+<meta name="theme-color" content="#0c0c0f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<title>Habits</title>
+</head>
+<body>
+<header class="top">
+  <button class="icon-btn" id="open-settings" aria-label="Settings and backup" data-icon="settings"></button>
+  <div class="top-mid">
+    <h1 class="sr">Habits</h1>
+    <p id="summary" class="summary" aria-live="polite"></p>
+  </div>
+  <button class="icon-btn accent" id="open-new" aria-label="New habit" data-icon="plus"></button>
+</header>
+
+<main id="home"></main>
+
+<nav class="nav" aria-label="View">
+  <button id="view-grid" aria-label="Grid view" aria-pressed="true" data-icon="layout-grid"></button>
+  <button id="view-list" aria-label="List view" aria-pressed="false" data-icon="list"></button>
+</nav>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<dialog id="detail" class="sheet" aria-labelledby="detail-title">
+  <div class="sheet-bar">
+    <button class="icon-btn" data-close aria-label="Back" data-icon="chevron-left"></button>
+    <button class="icon-btn" id="detail-edit" aria-label="Edit habit" data-icon="pencil"></button>
+  </div>
+  <div class="sheet-body" id="detail-body"></div>
+</dialog>
+
+<dialog id="edit" class="sheet" aria-labelledby="edit-title">
+  <form id="edit-form" novalidate>
+    <div class="sheet-bar">
+      <button type="button" class="icon-btn" data-close aria-label="Cancel" data-icon="x"></button>
+      <h2 id="edit-title" class="bar-title">New habit</h2>
+      <button type="submit" class="btn primary sm">Save</button>
+    </div>
+    <div class="sheet-body" id="edit-body"></div>
+  </form>
+</dialog>
+
+<dialog id="settings" class="sheet" aria-labelledby="settings-title">
+  <div class="sheet-bar">
+    <button class="icon-btn" data-close aria-label="Close" data-icon="x"></button>
+    <h2 id="settings-title" class="bar-title">Settings</h2>
+    <span class="bar-spacer"></span>
+  </div>
+  <div class="sheet-body">
+    <section class="panel stack">
+      <h3>Backup</h3>
+      <p class="muted">Your habits are stored only on this phone. Export a backup now and then and keep it in Files or iCloud Drive.</p>
+      <p class="muted" id="last-backup"></p>
+      <div class="row2">
+        <button class="btn" id="export" type="button">Export</button>
+        <button class="btn" id="import" type="button">Import</button>
+      </div>
+      <input type="file" id="import-file" accept=".json,application/json" class="sr" tabindex="-1" aria-hidden="true">
+    </section>
+    <p class="muted small">Icons from Lucide, ISC license.</p>
+  </div>
+</dialog>
+
+<script src="icons.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
