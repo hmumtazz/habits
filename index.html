@@ -61,13 +61,28 @@
   <div class="sheet-body">
     <section class="panel stack">
       <h3>Backup</h3>
-      <p class="muted">Your habits are stored only on this phone. Export a backup now and then and keep it in Files or iCloud Drive.</p>
+      <p class="muted">Your habits are stored on this phone. Export a backup now and then and keep it in Files or iCloud Drive.</p>
       <p class="muted" id="last-backup"></p>
       <div class="row2">
         <button class="btn" id="export" type="button">Export</button>
         <button class="btn" id="import" type="button">Import</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" class="sr" tabindex="-1" aria-hidden="true">
+    </section>
+    <section class="panel stack">
+      <h3>GitHub backup</h3>
+      <p class="muted">Saves every change to backup.json in a private GitHub repo.</p>
+      <label class="field"><span class="label">Repo</span>
+        <input id="sync-repo" type="text" placeholder="username/habits-backup" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </label>
+      <label class="field"><span class="label">Token</span>
+        <input id="sync-token" type="password" placeholder="github_pat_…" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </label>
+      <p class="muted" id="sync-status" aria-live="polite"></p>
+      <div class="row2">
+        <button class="btn" id="sync-connect" type="button">Connect</button>
+        <button class="btn" id="sync-restore" type="button">Restore</button>
+      </div>
     </section>
     <p class="muted small">Icons from Lucide, ISC license.</p>
   </div>

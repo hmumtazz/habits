@@ -2,6 +2,9 @@
 
 const STORE = 'habits.v1';
 const VIEW_KEY = 'habits.view';
+const SYNC_KEY = 'habits.sync';
+const SYNC_FILE = 'backup.json';
+const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SVGNS = 'http://www.w3.org/2000/svg';
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -104,10 +107,24 @@ function save() {
     localStorage.setItem(STORE, JSON.stringify(state));
   } catch {
     toast('Could not save. Storage is full or blocked.');
+    return;
+  }
+  if (sync.token) { sync.dirty = true; saveSync(); scheduleSync(); }
+}
+
+function loadSync() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SYNC_KEY));
+    return s && REPO_RE.test(s.repo) && typeof s.token === 'string' ? s : {};
+  } catch {
+    return {};
   }
 }
 
+const saveSync = () => localStorage.setItem(SYNC_KEY, JSON.stringify(sync));
+
 let state = load();
+let sync = loadSync();
 const ui = { view: localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid', detailId: null, month: null, editId: null, draft: null };
 
 const find = id => state.habits.find(x => x.id === id);
@@ -498,12 +515,15 @@ function renderSettings() {
   $('#last-backup').textContent = state.lastBackup
     ? `Last backup: ${fromKey(state.lastBackup).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}`
     : 'No backup yet.';
+  $('#sync-repo').value = sync.repo || '';
+  renderSync();
 }
+
+const backupJson = () => JSON.stringify({ app: 'habits', version: 1, exportedAt: new Date().toISOString(), habits: state.habits }, null, 2);
 
 function exportBackup() {
   const stamp = keyOf(today());
-  const json = JSON.stringify({ app: 'habits', version: 1, exportedAt: new Date().toISOString(), habits: state.habits }, null, 2);
-  const file = new File([json], `habits-backup-${stamp}.json`, { type: 'application/json' });
+  const file = new File([backupJson()], `habits-backup-${stamp}.json`, { type: 'application/json' });
   const done = () => { state.lastBackup = stamp; save(); renderSettings(); toast('Backup exported'); };
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     navigator.share({ files: [file] }).then(done, err => { if (err.name !== 'AbortError') toast('Export failed'); });
@@ -526,12 +546,121 @@ async function importBackup(e) {
   let data = null;
   try { data = sanitize(JSON.parse(await f.text())); } catch { data = null; }
   if (!data) { toast("That file isn't a Habits backup."); return; }
-  if (!confirm(`Replace your ${state.habits.length} habits with the ${data.habits.length} in this backup?`)) return;
-  state.habits = data.habits;
+  replaceHabits(data.habits, 'this backup');
+}
+
+function replaceHabits(habits, source) {
+  if (!confirm(`Replace your ${state.habits.length} habits with the ${habits.length} in ${source}?`)) return false;
+  state.habits = habits;
   save();
   $('#settings').close();
   renderAll();
-  toast(`Imported ${data.habits.length} habits`);
+  toast(`Imported ${habits.length} habits`);
+  return true;
+}
+
+const toBase64 = s => { let b = ''; for (const x of new TextEncoder().encode(s)) b += String.fromCharCode(x); return btoa(b); };
+const fromBase64 = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, '')), c => c.charCodeAt(0)));
+const errText = err => err instanceof TypeError ? 'Offline. Will retry.' : err.message;
+const syncMsg = status => status === 401 ? 'Token is invalid or expired.'
+  : status === 403 || status === 404 ? "Token can't write to that repo."
+  : `GitHub error ${status}.`;
+
+function ghFile(method, body) {
+  return fetch(`https://api.github.com/repos/${sync.repo}/contents/${SYNC_FILE}`, {
+    method,
+    cache: 'no-store',
+    headers: { Authorization: `Bearer ${sync.token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: body && JSON.stringify(body),
+  });
+}
+
+async function getRemote() {
+  const res = await ghFile('GET');
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(syncMsg(res.status));
+  const file = await res.json();
+  let data = null;
+  try { data = sanitize(JSON.parse(fromBase64(file.content))); } catch { data = null; }
+  return { sha: file.sha, data };
+}
+
+let syncTimer = 0;
+let syncing = null;
+
+function scheduleSync() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushBackup, 4000);
+}
+
+function pushBackup() {
+  clearTimeout(syncTimer);
+  if (syncing || !sync.token || !sync.dirty || !state.habits.length) return syncing || Promise.resolve();
+  sync.dirty = false;
+  const body = { message: `Backup ${new Date().toISOString()}`, content: toBase64(backupJson()) };
+  syncing = (async () => {
+    let res = await ghFile('PUT', { ...body, sha: sync.sha || undefined });
+    if (res.status === 409 || res.status === 422) res = await ghFile('PUT', { ...body, sha: (await getRemote())?.sha });
+    if (!res.ok) throw new Error(syncMsg(res.status));
+    sync.sha = (await res.json()).content.sha;
+    sync.at = new Date().toISOString();
+    sync.error = null;
+  })().catch(err => {
+    sync.dirty = true;
+    sync.error = errText(err);
+    if (!(err instanceof TypeError)) toast('GitHub backup failed. Check Settings.');
+  }).finally(() => {
+    syncing = null;
+    saveSync();
+    renderSync();
+    if (sync.dirty && !sync.error) scheduleSync();
+  });
+  return syncing;
+}
+
+function renderSync() {
+  $('#sync-token').placeholder = sync.token ? 'Saved. Paste a new one to replace it.' : 'github_pat_…';
+  $('#sync-status').textContent = !sync.token ? 'Not connected.'
+    : sync.error ? `Last try failed. ${sync.error}`
+    : sync.at ? `Last GitHub backup: ${new Date(sync.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+    : 'Connected. Waiting for a change to back up.';
+}
+
+function restoreFrom(remote) {
+  if (!replaceHabits(remote.data.habits, 'the GitHub backup')) return;
+  clearTimeout(syncTimer);
+  Object.assign(sync, { sha: remote.sha, dirty: false, error: null });
+  saveSync();
+}
+
+async function connectSync() {
+  const repo = $('#sync-repo').value.trim();
+  const token = $('#sync-token').value.trim() || sync.token;
+  if (!REPO_RE.test(repo) || !token) { toast('Enter the repo as username/repo and paste a token.'); return; }
+  sync = { repo, token };
+  saveSync();
+  $('#sync-token').value = '';
+  try {
+    const remote = await getRemote();
+    sync.sha = remote && remote.sha;
+    if (!state.habits.length && remote && remote.data && remote.data.habits.length) { restoreFrom(remote); return; }
+  } catch (err) {
+    sync.error = errText(err);
+    saveSync();
+    renderSync();
+    return;
+  }
+  sync.dirty = true;
+  await pushBackup();
+  if (!sync.error) toast(state.habits.length ? 'Backed up to GitHub' : 'Connected');
+}
+
+async function restoreSync() {
+  if (!sync.token) { toast('Connect a repo first.'); return; }
+  let remote = null;
+  try { remote = await getRemote(); } catch (err) { toast(errText(err)); return; }
+  if (!remote || !remote.data) { toast('No backup found on GitHub.'); return; }
+  restoreFrom(remote);
 }
 
 let toastTimer = 0;
@@ -562,6 +691,9 @@ function init() {
   $('#export').addEventListener('click', exportBackup);
   $('#import').addEventListener('click', () => $('#import-file').click());
   $('#import-file').addEventListener('change', importBackup);
+  $('#sync-connect').addEventListener('click', connectSync);
+  $('#sync-restore').addEventListener('click', restoreSync);
+  window.addEventListener('online', pushBackup);
 
   let resizeTimer = 0;
   let lastWidth = window.innerWidth;
@@ -573,12 +705,13 @@ function init() {
   });
   let dayKey = keyOf(today());
   const checkDay = () => { const k = keyOf(today()); if (k !== dayKey) { dayKey = k; renderAll(); } };
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDay(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDay(); pushBackup(); });
   setInterval(checkDay, 30000);
 
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
   renderHome();
+  pushBackup();
 }
 
 init();

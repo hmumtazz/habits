@@ -233,11 +233,11 @@ dialog::backdrop { background: rgba(0, 0, 0, .65); }
 .field { display: grid; gap: 8px; }
 .label { font-size: 13px; color: var(--muted); padding: 0; }
 legend.label { margin-bottom: 8px; }
-input[type="text"] {
+input[type="text"], input[type="password"] {
   width: 100%; font: inherit; font-size: 16px; color: var(--text);
   background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px;
 }
-input[type="text"]:focus { outline: none; border-color: var(--accent); }
+input[type="text"]:focus, input[type="password"]:focus { outline: none; border-color: var(--accent); }
 input::placeholder { color: #5f5f6b; }
 .err { color: #ff8a8a; font-size: 13px; min-height: 0; }
 .err:empty { display: none; }
