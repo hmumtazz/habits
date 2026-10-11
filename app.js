@@ -293,7 +293,7 @@ function todoView() {
     h('form', { class: 'todo-add', onsubmit: addTodo },
       h('input', {
         id: 'todo-input', type: 'text', maxlength: 120, value: ui.todoDraft, autocomplete: 'off', enterkeyhint: 'enter',
-        placeholder: 'Return package, check the mail', 'aria-label': 'New to-do', 'data-f': 'todo-input',
+        placeholder: 'Add a to-do', 'aria-label': 'New to-do', 'data-f': 'todo-input',
         oninput: e => { ui.todoDraft = e.target.value; },
       }),
       h('button', { type: 'submit', class: 'icon-btn', 'aria-label': 'Add to-do' }, icon('plus'))),
