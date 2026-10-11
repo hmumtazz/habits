@@ -90,17 +90,27 @@ function sanitize(raw) {
       days,
     });
   }
+  const todos = [];
+  for (const t of Array.isArray(raw.todos) ? raw.todos : []) {
+    if (!t || typeof t.text !== 'string' || !t.text.trim()) continue;
+    let id = typeof t.id === 'string' && t.id && t.id.length <= 64 ? t.id : uid();
+    if (seen.has(id)) id = uid();
+    seen.add(id);
+    todos.push({ id, text: t.text.trim().slice(0, 120), done: t.done === true });
+  }
   const lastBackup = typeof raw.lastBackup === 'string' && DATE_RE.test(raw.lastBackup) ? raw.lastBackup : null;
-  return { habits, lastBackup };
+  return { habits, todos, lastBackup };
 }
 
 function load() {
   try {
-    return sanitize(JSON.parse(localStorage.getItem(STORE))) || { habits: [], lastBackup: null };
+    return sanitize(JSON.parse(localStorage.getItem(STORE))) || { habits: [], todos: [], lastBackup: null };
   } catch {
-    return { habits: [], lastBackup: null };
+    return { habits: [], todos: [], lastBackup: null };
   }
 }
+
+const isEmpty = () => !state.habits.length && !state.todos.length;
 
 function save() {
   try {
@@ -125,7 +135,8 @@ const saveSync = () => localStorage.setItem(SYNC_KEY, JSON.stringify(sync));
 
 let state = load();
 let sync = loadSync();
-const ui = { view: localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid', detailId: null, month: null, editId: null, draft: null };
+const VIEWS = ['grid', 'list', 'todo'];
+const ui = { view: VIEWS.includes(localStorage.getItem(VIEW_KEY)) ? localStorage.getItem(VIEW_KEY) : 'grid', detailId: null, month: null, editId: null, draft: null, todoDraft: '' };
 
 const find = id => state.habits.find(x => x.id === id);
 const countOn = (hb, k) => hb.days[k] || 0;
@@ -265,10 +276,81 @@ function emptyState() {
     h('button', { class: 'btn primary', onclick: () => openEdit(null) }, icon('plus'), 'Create your first habit'));
 }
 
+function todoRow(t) {
+  return h('li', { class: `todo${t.done ? ' done' : ''}` },
+    h('button', {
+      class: 'todo-check', 'data-f': `${t.id}|todo`, 'aria-pressed': String(t.done), 'aria-label': `${t.text} done`,
+      onclick: () => toggleTodo(t.id),
+    }, icon('check')),
+    h('span', { class: 'todo-text' }, t.text),
+    h('button', { class: 'icon-btn sm', 'aria-label': `Delete ${t.text}`, onclick: () => deleteTodo(t.id) }, icon('x')));
+}
+
+function todoView() {
+  const open = state.todos.filter(t => !t.done);
+  const done = state.todos.filter(t => t.done);
+  return h('div', { class: 'todo-view' },
+    h('form', { class: 'todo-add', onsubmit: addTodo },
+      h('input', {
+        id: 'todo-input', type: 'text', maxlength: 120, value: ui.todoDraft, autocomplete: 'off', enterkeyhint: 'enter',
+        placeholder: 'Return package, check the mail', 'aria-label': 'New to-do', 'data-f': 'todo-input',
+        oninput: e => { ui.todoDraft = e.target.value; },
+      }),
+      h('button', { type: 'submit', class: 'icon-btn', 'aria-label': 'Add to-do' }, icon('plus'))),
+    open.length
+      ? h('ul', { class: 'list-card todos' }, open.map(todoRow))
+      : h('p', { class: 'muted todo-empty' }, done.length ? 'All done.' : 'Nothing to do yet.'),
+    done.length > 0 && h('div', { class: 'list-top' },
+      h('span', { class: 'pill' }, `Done ${done.length}`),
+      h('button', { class: 'btn sm', onclick: clearDone }, 'Clear')),
+    done.length > 0 && h('ul', { class: 'list-card todos' }, done.map(todoRow)));
+}
+
+function addTodo(e) {
+  e.preventDefault();
+  const text = ui.todoDraft.trim();
+  if (text) {
+    state.todos.push({ id: uid(), text: text.slice(0, 120), done: false });
+    ui.todoDraft = '';
+    save();
+    renderAll();
+  }
+  $('#todo-input').focus();
+}
+
+function toggleTodo(id) {
+  const t = state.todos.find(x => x.id === id);
+  if (!t) return;
+  t.done = !t.done;
+  save();
+  renderAll();
+}
+
+function deleteTodo(id) {
+  state.todos = state.todos.filter(x => x.id !== id);
+  save();
+  renderAll();
+  toast('Deleted');
+}
+
+function clearDone() {
+  const n = state.todos.filter(t => t.done).length;
+  state.todos = state.todos.filter(t => !t.done);
+  save();
+  renderAll();
+  toast(`Cleared ${n}`);
+}
+
 function renderHome() {
   const home = $('#home');
-  $('#view-grid').setAttribute('aria-pressed', String(ui.view === 'grid'));
-  $('#view-list').setAttribute('aria-pressed', String(ui.view === 'list'));
+  for (const v of VIEWS) $(`#view-${v}`).setAttribute('aria-pressed', String(ui.view === v));
+  $('#open-new').setAttribute('aria-label', ui.view === 'todo' ? 'New to-do' : 'New habit');
+  if (ui.view === 'todo') {
+    const open = state.todos.filter(t => !t.done).length;
+    $('#summary').textContent = !state.todos.length ? '' : open ? `${open} to do` : 'All done';
+    home.replaceChildren(todoView());
+    return;
+  }
   const t = keyOf(today());
   const total = state.habits.length;
   const done = state.habits.filter(hb => isDone(hb, t)).length;
@@ -519,7 +601,7 @@ function renderSettings() {
   renderSync();
 }
 
-const backupJson = () => JSON.stringify({ app: 'habits', version: 1, exportedAt: new Date().toISOString(), habits: state.habits }, null, 2);
+const backupJson = () => JSON.stringify({ app: 'habits', version: 1, exportedAt: new Date().toISOString(), habits: state.habits, todos: state.todos }, null, 2);
 
 function exportBackup() {
   const stamp = keyOf(today());
@@ -546,16 +628,17 @@ async function importBackup(e) {
   let data = null;
   try { data = sanitize(JSON.parse(await f.text())); } catch { data = null; }
   if (!data) { toast("That file isn't a Habits backup."); return; }
-  replaceHabits(data.habits, 'this backup');
+  replaceData(data, 'this backup');
 }
 
-function replaceHabits(habits, source) {
-  if (!confirm(`Replace your ${state.habits.length} habits with the ${habits.length} in ${source}?`)) return false;
-  state.habits = habits;
+function replaceData(data, source) {
+  if (!confirm(`Replace everything on this phone with ${source} (${data.habits.length} habits, ${data.todos.length} to-dos)?`)) return false;
+  state.habits = data.habits;
+  state.todos = data.todos;
   save();
   $('#settings').close();
   renderAll();
-  toast(`Imported ${habits.length} habits`);
+  toast(`Imported ${data.habits.length} habits and ${data.todos.length} to-dos`);
   return true;
 }
 
@@ -595,7 +678,7 @@ function scheduleSync() {
 
 function pushBackup() {
   clearTimeout(syncTimer);
-  if (syncing || !sync.token || !sync.dirty || !state.habits.length) return syncing || Promise.resolve();
+  if (syncing || !sync.token || !sync.dirty || isEmpty()) return syncing || Promise.resolve();
   sync.dirty = false;
   const body = { message: `Backup ${new Date().toISOString()}`, content: toBase64(backupJson()) };
   syncing = (async () => {
@@ -627,7 +710,7 @@ function renderSync() {
 }
 
 function restoreFrom(remote) {
-  if (!replaceHabits(remote.data.habits, 'the GitHub backup')) return;
+  if (!replaceData(remote.data, 'the GitHub backup')) return;
   clearTimeout(syncTimer);
   Object.assign(sync, { sha: remote.sha, dirty: false, error: null });
   saveSync();
@@ -643,7 +726,7 @@ async function connectSync() {
   try {
     const remote = await getRemote();
     sync.sha = remote && remote.sha;
-    if (!state.habits.length && remote && remote.data && remote.data.habits.length) { restoreFrom(remote); return; }
+    if (isEmpty() && remote && remote.data && (remote.data.habits.length || remote.data.todos.length)) { restoreFrom(remote); return; }
   } catch (err) {
     sync.error = errText(err);
     saveSync();
@@ -652,7 +735,7 @@ async function connectSync() {
   }
   sync.dirty = true;
   await pushBackup();
-  if (!sync.error) toast(state.habits.length ? 'Backed up to GitHub' : 'Connected');
+  if (!sync.error) toast(isEmpty() ? 'Connected' : 'Backed up to GitHub');
 }
 
 async function restoreSync() {
@@ -682,11 +765,12 @@ function init() {
   for (const el of document.querySelectorAll('[data-icon]')) el.prepend(icon(el.dataset.icon));
   for (const el of document.querySelectorAll('[data-close]')) el.addEventListener('click', () => el.closest('dialog').close());
   $('#detail').addEventListener('close', () => { ui.detailId = null; });
-  $('#open-new').addEventListener('click', () => openEdit(null));
+  $('#open-new').addEventListener('click', () => (ui.view === 'todo' ? $('#todo-input').focus() : openEdit(null)));
   $('#detail-edit').addEventListener('click', () => openEdit(ui.detailId));
   $('#open-settings').addEventListener('click', () => { renderSettings(); $('#settings').showModal(); });
   $('#view-grid').addEventListener('click', () => setView('grid'));
   $('#view-list').addEventListener('click', () => setView('list'));
+  $('#view-todo').addEventListener('click', () => setView('todo'));
   $('#edit-form').addEventListener('submit', saveEdit);
   $('#export').addEventListener('click', exportBackup);
   $('#import').addEventListener('click', () => $('#import-file').click());
