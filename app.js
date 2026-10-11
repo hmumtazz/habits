@@ -789,11 +789,16 @@ function init() {
   });
   let dayKey = keyOf(today());
   const checkDay = () => { const k = keyOf(today()); if (k !== dayKey) { dayKey = k; renderAll(); } };
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDay(); pushBackup(); });
+  const checkUpdate = () => { if (navigator.serviceWorker) navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => {}); };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkDay(); checkUpdate(); } pushBackup(); });
   setInterval(checkDay, 30000);
 
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) location.reload(); });
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
   renderHome();
   pushBackup();
 }
